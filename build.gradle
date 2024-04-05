@@ -67,11 +67,11 @@ def nativePlatforms = ['windows', 'linux', 'osx', 'all']
 nativePlatforms.each { platform -> //noinspection GroovyAssignabilityCheck
 	task "${platform}Natives" {
 		def outputDir = "${buildDir}/natives/"
-		inputs.files(configurations.implementation)
+		inputs.files(configurations.runtimeClasspath)
 		outputs.dir(outputDir)
 		doLast {
 			copy {
-				def artifacts = configurations.compile.resolvedConfiguration.resolvedArtifacts
+				def artifacts = configurations.runtimeClasspath.resolvedConfiguration.resolvedArtifacts
 						.findAll { it.classifier == "natives-$platform" }
 				artifacts.each {
 					from zipTree(it.file)
@@ -107,7 +107,7 @@ jar {
 	duplicatesStrategy = DuplicatesStrategy.EXCLUDE
 	archivesBaseName = "opsu"
 
-	from { configurations.compile.collect { it.isDirectory() ? it : zipTree(it) } }
+	from { configurations.runtimeClasspath.collect { it.isDirectory() ? it : zipTree(it) } }
 	exclude '**/Thumbs.db'
 	if (excludeFFmpeg)
 		exclude 'ffmpeg*'
@@ -115,6 +115,6 @@ jar {
 	outputs.upToDateWhen { false }
 }
 
-run {
+tasks.named("classes") {
 	dependsOn 'unpackNatives'
 }
