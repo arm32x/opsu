@@ -7,7 +7,20 @@ plugins {
 }
 
 group = "itdelatrisu"
-version = "0.16.1"
+version = "0.17.0-snapshot"
+
+// Append some build metadata to the version if building a development version
+if (version.toString().endsWith("-snapshot")) {
+    try {
+        val commitHashProcess = ProcessBuilder("git", "rev-parse", "--short", "HEAD").directory(projectDir).start()
+        val commitHash = commitHashProcess.inputStream.bufferedReader().use { it.readText() }.trim()
+        val dirty = ProcessBuilder("git", "diff", "--quiet").directory(projectDir).start().waitFor() != 0
+        val dirtySuffix = if (dirty) ".dirty" else ""
+        version = "${version}+git.${commitHash}${dirtySuffix}"
+    } catch (ex: Exception) {
+        logger.warn("Unable to add Git metadata to version", ex)
+    }
+}
 
 // TODO: Use SOURCE_DATE_EPOCH for reproducible builds
 val buildDate = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm").format(LocalDateTime.now())
@@ -74,6 +87,10 @@ for (platform in nativePlatforms) {
 }
 
 tasks.processResources {
+    // Make sure the version file gets regenerated if the version changes
+    inputs.property("version", project.version)
+    inputs.property("timestamp", buildDate)
+
     from("res")
     exclude("**/Thumbs.db")
 
