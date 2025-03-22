@@ -44,6 +44,8 @@ repositories {
 }
 
 dependencies {
+    implementation(project(":natives", configuration = "nativesJar"))
+
     implementation("org.lwjgl.lwjgl:lwjgl:2.9.3") {
         exclude(group = "net.java.jinput", module = "jinput")
     }
