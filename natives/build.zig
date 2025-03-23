@@ -51,21 +51,39 @@ pub fn build(b: *std.Build) void {
         // TODO: Support macOS. This requires obtaining headers for CoreAudio.
     };
 
+    const jni = b.dependency("JNI", .{});
+
     const check = b.step("check", "Check for compilation errors");
     for (platforms) |platform| {
-        setupPlatform(b, optimize, check, platform);
+        setupPlatform(b, .{
+            .optimize = optimize,
+            .platform = platform,
+            .dependencies = .{
+                .jni = jni,
+            },
+            .check_step = check,
+        });
     }
 }
 
-fn setupPlatform(b: *std.Build, optimize: std.builtin.OptimizeMode, check: *std.Build.Step, platform: Platform) void {
-    const target = b.resolveTargetQuery(platform.target_query);
+const SetupPlatformOptions = struct {
+    optimize: std.builtin.OptimizeMode,
+    platform: Platform,
+    dependencies: struct {
+        jni: *std.Build.Dependency,
+    },
+    check_step: *std.Build.Step,
+};
+
+fn setupPlatform(b: *std.Build, options: SetupPlatformOptions) void {
+    const target = b.resolveTargetQuery(options.platform.target_query);
 
     const miniaudio = b.addTranslateC(.{
         .root_source_file = b.path("vendor/miniaudio.h"),
         .target = target,
-        .optimize = optimize,
+        .optimize = options.optimize,
     });
-    platform.enrichStepName(b.allocator, &miniaudio.step);
+    options.platform.enrichStepName(b.allocator, &miniaudio.step);
 
     // This creates a "module", which represents a collection of source files alongside
     // some compilation options, such as optimization mode and linked system libraries.
@@ -73,7 +91,7 @@ fn setupPlatform(b: *std.Build, optimize: std.builtin.OptimizeMode, check: *std.
     const lib_mod = b.createModule(.{
         .root_source_file = b.path("src/root.zig"),
         .target = target,
-        .optimize = optimize,
+        .optimize = options.optimize,
         .link_libc = true,
     });
     lib_mod.addCSourceFiles(.{
@@ -82,6 +100,7 @@ fn setupPlatform(b: *std.Build, optimize: std.builtin.OptimizeMode, check: *std.
             "vendor/stb_vorbis.c",
         },
     });
+    lib_mod.addImport("jni", options.dependencies.jni.module("JNI"));
     lib_mod.addImport("miniaudio", miniaudio.createModule());
 
     // Now, we will create a static library based on the module we created above.
@@ -89,12 +108,12 @@ fn setupPlatform(b: *std.Build, optimize: std.builtin.OptimizeMode, check: *std.
     // for actually invoking the compiler.
     const lib = b.addLibrary(.{
         .linkage = .dynamic,
-        .name = platform.lib_name,
+        .name = options.platform.lib_name,
         .root_module = lib_mod,
     });
-    platform.enrichStepName(b.allocator, &lib.step);
+    options.platform.enrichStepName(b.allocator, &lib.step);
     // Workaround for https://github.com/ziglang/zig/issues/7935
-    lib.link_z_notext = platform.link_z_notext;
+    lib.link_z_notext = options.platform.link_z_notext;
 
     const lib_install = b.addInstallArtifact(lib, .{
         // Always put the library in zig-out/lib. By default, Windows DLLs get
@@ -106,7 +125,7 @@ fn setupPlatform(b: *std.Build, optimize: std.builtin.OptimizeMode, check: *std.
         // install nonexistent PDB files for Linux.
         .pdb_dir = if (target.result.os.tag == .windows) .{ .override = .{ .custom = "pdb" } } else .disabled,
     });
-    platform.enrichStepName(b.allocator, &lib_install.step);
+    options.platform.enrichStepName(b.allocator, &lib_install.step);
     b.getInstallStep().dependOn(&lib_install.step);
 
     const lib_check = b.addLibrary(.{
@@ -114,6 +133,6 @@ fn setupPlatform(b: *std.Build, optimize: std.builtin.OptimizeMode, check: *std.
         .name = "opsu",
         .root_module = lib_mod,
     });
-    platform.enrichStepName(b.allocator, &lib_check.step);
-    check.dependOn(&lib_check.step);
+    options.platform.enrichStepName(b.allocator, &lib_check.step);
+    options.check_step.dependOn(&lib_check.step);
 }
