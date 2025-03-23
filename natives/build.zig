@@ -60,6 +60,13 @@ pub fn build(b: *std.Build) void {
 fn setupPlatform(b: *std.Build, optimize: std.builtin.OptimizeMode, check: *std.Build.Step, platform: Platform) void {
     const target = b.resolveTargetQuery(platform.target_query);
 
+    const miniaudio = b.addTranslateC(.{
+        .root_source_file = b.path("vendor/miniaudio.h"),
+        .target = target,
+        .optimize = optimize,
+    });
+    platform.enrichStepName(b.allocator, &miniaudio.step);
+
     // This creates a "module", which represents a collection of source files alongside
     // some compilation options, such as optimization mode and linked system libraries.
     // Every executable or library we compile will be based on one or more modules.
@@ -67,7 +74,15 @@ fn setupPlatform(b: *std.Build, optimize: std.builtin.OptimizeMode, check: *std.
         .root_source_file = b.path("src/root.zig"),
         .target = target,
         .optimize = optimize,
+        .link_libc = true,
     });
+    lib_mod.addCSourceFiles(.{
+        .files = &.{
+            "vendor/miniaudio.c",
+            "vendor/stb_vorbis.c",
+        },
+    });
+    lib_mod.addImport("miniaudio", miniaudio.createModule());
 
     // Now, we will create a static library based on the module we created above.
     // This creates a `std.Build.Step.Compile`, which is the build step responsible
