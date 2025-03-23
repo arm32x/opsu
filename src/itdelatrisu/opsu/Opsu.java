@@ -18,6 +18,7 @@
 
 package itdelatrisu.opsu;
 
+import itdelatrisu.opsu.audio.Miniaudio;
 import itdelatrisu.opsu.audio.MusicController;
 import itdelatrisu.opsu.db.DBController;
 import itdelatrisu.opsu.downloads.DownloadList;
@@ -161,6 +162,7 @@ public class Opsu extends StateBasedGame {
 		System.setProperty("org.lwjgl.librarypath", nativeDir.getAbsolutePath());
 		System.setProperty("java.library.path", nativeDir.getAbsolutePath());
 		FFmpeg.setNativeDir(nativeDir);
+		Miniaudio.init(nativeDir.toPath());
 
 		// set the resource paths
 		ResourceLoader.addResourceLocation(new FileSystemLocation(new File("./res/")));
@@ -264,6 +266,9 @@ public class Opsu extends StateBasedGame {
 
 		// cancel all downloads
 		DownloadList.get().cancelAllDownloads();
+
+		// clean up miniaudio resources
+		Miniaudio.destroy();
 	}
 
 	/**

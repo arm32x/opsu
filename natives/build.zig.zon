@@ -5,8 +5,8 @@
     .minimum_zig_version = "0.14.0",
     .dependencies = .{
         .JNI = .{
-            .url = "https://github.com/SuperIceCN/Zig-JNI/archive/refs/tags/v0.0.9.tar.gz",
-            .hash = "JNI-0.0.1-AAAAAFfSAwA9WVi6vfiN4-LFXMa3VRyuMi2mPzJOjMcA",
+            .url = "https://github.com/SuperIceCN/Zig-JNI/archive/0ff1af3860047b299ce6f9b9681e4e0568064b61.tar.gz",
+            .hash = "JNI-0.0.1-AAAAACMJBABG7sn8cyTLYSERwJziJN3uU6aTG7-lhOvO",
         },
     },
     .paths = .{
