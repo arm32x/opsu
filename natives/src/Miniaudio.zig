@@ -15,7 +15,7 @@ pub fn jniInit(cEnv: *jni.cEnv, class: jni.jclass) callconv(.C) jni.jlong {
 fn init(env: jni.JNIEnv, _: jni.jclass) error{Exception}!jni.jlong {
     const allocator = std.heap.c_allocator;
 
-    const self = allocator.create(Self) catch try exceptions.throwOutOfMemoryError(env);
+    const self = allocator.create(Self) catch return exceptions.throwOutOfMemoryError(env);
     return handle_casts.handleFromPtr(self);
 }
 

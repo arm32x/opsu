@@ -8,24 +8,24 @@ pub fn check(env: jni.JNIEnv) error{Exception}!void {
     }
 }
 
-pub fn throwNew(env: jni.JNIEnv, class_name: [*:0]const u8, message: [*:0]const u8) error{Exception}!noreturn {
+pub fn throwNew(env: jni.JNIEnv, class_name: [*:0]const u8, message: [*:0]const u8) error{Exception} {
     const exception_class = env.findClass(class_name);
     try check(env);
 
-    env.throwNew(exception_class, message) catch |err| try throwFromZigError(env, err);
+    env.throwNew(exception_class, message) catch |err| return throwFromZigError(env, err);
     return error.Exception;
 }
 
-pub fn throwOutOfMemoryError(env: jni.JNIEnv) error{Exception}!noreturn {
+pub fn throwOutOfMemoryError(env: jni.JNIEnv) error{Exception} {
     return throwNew(env, "java/lang/OutOfMemoryError", "Out of memory in Zig code");
 }
 
-pub fn throwFromZigError(env: jni.JNIEnv, err: anyerror) error{Exception}!noreturn {
+pub fn throwFromZigError(env: jni.JNIEnv, err: anyerror) error{Exception} {
     // Make sure an exception hasn't already been thrown
     try check(env);
 
     switch (err) {
-        error.OutOfMemory, error.JNIOutOfMemory => try throwOutOfMemoryError(env),
+        error.OutOfMemory, error.JNIOutOfMemory => return throwOutOfMemoryError(env),
 
         else => {
             var message_buf: [64]u8 = undefined;
@@ -33,7 +33,7 @@ pub fn throwFromZigError(env: jni.JNIEnv, err: anyerror) error{Exception}!noretu
                 std.mem.copyForwards(u8, message_buf[message_buf.len - 4 ..], "...\x00");
                 break :blk message_buf[0 .. message_buf.len - 1 :0];
             };
-            try throwNew(env, "java/lang/RuntimeException", message);
+            return throwNew(env, "java/lang/RuntimeException", message);
         },
     }
 }
