@@ -18,7 +18,7 @@
 
 package itdelatrisu.opsu;
 
-import itdelatrisu.opsu.audio.Miniaudio;
+import itdelatrisu.opsu.audio.miniaudio.Miniaudio;
 import itdelatrisu.opsu.audio.MusicController;
 import itdelatrisu.opsu.db.DBController;
 import itdelatrisu.opsu.downloads.DownloadList;

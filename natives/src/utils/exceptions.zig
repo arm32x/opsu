@@ -26,7 +26,7 @@ pub fn throwMiniaudioException(env: jni.JNIEnv, result: ma.ma_result, message: [
     try check(env);
 
     // Find the exception class and constructor
-    const exception_class = env.findClass("itdelatrisu/opsu/audio/MiniaudioException");
+    const exception_class = env.findClass("itdelatrisu/opsu/audio/miniaudio/MiniaudioException");
     try check(env);
     const constructor = env.getMethodID(exception_class, "<init>", "(ILjava/lang/String;)V");
     try check(env);

@@ -1,4 +1,4 @@
-package itdelatrisu.opsu.audio;
+package itdelatrisu.opsu.audio.miniaudio;
 
 import java.util.Collections;
 import java.util.HashMap;

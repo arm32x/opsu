@@ -1,4 +1,4 @@
-package itdelatrisu.opsu.audio;
+package itdelatrisu.opsu.audio.miniaudio;
 
 import java.nio.file.Path;
 
