@@ -2,8 +2,7 @@ const std = @import("std");
 const jni = @import("jni");
 const ma = @import("miniaudio");
 
-const exceptions = @import("utils/exceptions.zig");
-const handle_casts = @import("utils/handle_casts.zig");
+const utils = @import("utils.zig");
 
 const Self = @This();
 
@@ -17,14 +16,14 @@ pub fn jniInit(cEnv: *jni.cEnv, class: jni.jclass) callconv(.C) jni.jlong {
 fn init(env: jni.JNIEnv, _: jni.jclass) error{Exception}!jni.jlong {
     const allocator = std.heap.c_allocator;
 
-    const self = allocator.create(Self) catch return exceptions.throwOutOfMemoryError(env);
+    const self = allocator.create(Self) catch return utils.throwOutOfMemoryError(env);
 
     const result = ma.ma_engine_init(null, &self.engine);
     if (result != ma.MA_SUCCESS) {
-        return exceptions.throwMiniaudioException(env, result, "Failed to create miniaudio engine");
+        return utils.throwMiniaudioException(env, result, "Failed to create miniaudio engine");
     }
 
-    return handle_casts.handleFromPtr(self);
+    return utils.handleFromPtr(self);
 }
 
 pub fn jniDestroy(cEnv: *jni.cEnv, class: jni.jclass, handle: jni.jlong) callconv(.C) void {
@@ -34,7 +33,7 @@ pub fn jniDestroy(cEnv: *jni.cEnv, class: jni.jclass, handle: jni.jlong) callcon
 
 fn destroy(_: jni.JNIEnv, _: jni.jclass, handle: jni.jlong) error{Exception}!void {
     const allocator = std.heap.c_allocator;
-    const self = handle_casts.ptrFromHandle(Self, handle);
+    const self = utils.ptrFromHandle(Self, handle);
 
     ma.ma_engine_uninit(&self.engine);
 

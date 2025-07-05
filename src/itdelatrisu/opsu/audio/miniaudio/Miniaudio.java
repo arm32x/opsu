@@ -6,7 +6,7 @@ public final class Miniaudio {
 	private static final Object initLock = new Object();
 	private static Miniaudio instance = null;
 
-	private final long handle;
+	final long handle;
 
 	private Miniaudio(long handle) {
 		this.handle = handle;
