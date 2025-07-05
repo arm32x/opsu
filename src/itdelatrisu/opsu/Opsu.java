@@ -268,7 +268,7 @@ public class Opsu extends StateBasedGame {
 		DownloadList.get().cancelAllDownloads();
 
 		// clean up miniaudio resources
-		Miniaudio.destroy();
+		Miniaudio.getInstance().destroy();
 	}
 
 	/**

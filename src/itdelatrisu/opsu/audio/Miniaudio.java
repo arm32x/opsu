@@ -3,13 +3,23 @@ package itdelatrisu.opsu.audio;
 import java.nio.file.Path;
 
 public final class Miniaudio {
-	private static final Object lock = new Object();
-	private static long handle = -1;
+	private static final Object initLock = new Object();
+	private static Miniaudio instance = null;
+
+	private final long handle;
+
+	private Miniaudio(long handle) {
+		this.handle = handle;
+	}
+
+	public static String getVersion() {
+		return jniGetVersion();
+	}
 
 	public static void init(Path nativesDir) {
-		synchronized (lock) {
-			if (handle != -1) {
-				return;
+		synchronized (initLock) {
+			if (instance != null) {
+				throw new RuntimeException("miniaudio is already initialized");
 			}
 
 			// For some reason, Java can't find the library if we do a simple
@@ -17,25 +27,26 @@ public final class Miniaudio {
 			Path libraryFile = nativesDir.resolve(System.mapLibraryName(getLibraryName()));
 			System.load(libraryFile.toAbsolutePath().toString());
 
-			handle = jniInit();
+			long handle = jniInit();
+			instance = new Miniaudio(handle);
 
 			System.out.printf("Loaded miniaudio %s%n", getVersion());
 		}
 	}
 
-	public static void destroy() {
-		synchronized (lock) {
-			if (handle == -1) {
-				return;
-			}
-
-			jniDestroy(handle);
-			handle = -1;
+	public static Miniaudio getInstance() {
+		Miniaudio result = instance;
+		if (result == null) {
+			throw new RuntimeException("miniaudio is not initialized");
 		}
+		return result;
 	}
 
-	public static String getVersion() {
-		return jniGetVersion();
+	public void destroy() {
+		synchronized (initLock) {
+			jniDestroy(handle);
+			instance = null;
+		}
 	}
 
 	private static String getLibraryName() {
