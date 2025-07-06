@@ -162,3 +162,77 @@ fn destroy(_: jni.JNIEnv, _: jni.jclass, handle: jni.jlong) error{Exception}!voi
 
     allocator.destroy(self);
 }
+
+pub fn jniStart(cEnv: *jni.cEnv, class: jni.jclass, handle: jni.jlong) callconv(.C) void {
+    const env = jni.JNIEnv.warp(cEnv);
+    return start(env, class, handle) catch {};
+}
+
+fn start(env: jni.JNIEnv, _: jni.jclass, handle: jni.jlong) error{Exception}!void {
+    const self = utils.ptrFromHandle(Self, handle);
+
+    const result = ma.ma_sound_start(&self.sound);
+    if (result != ma.MA_SUCCESS) {
+        return utils.throwMiniaudioException(env, result, "Failed to start sound");
+    }
+}
+
+pub fn jniStop(cEnv: *jni.cEnv, class: jni.jclass, handle: jni.jlong) callconv(.C) void {
+    const env = jni.JNIEnv.warp(cEnv);
+    return stop(env, class, handle) catch {};
+}
+
+fn stop(env: jni.JNIEnv, _: jni.jclass, handle: jni.jlong) error{Exception}!void {
+    const self = utils.ptrFromHandle(Self, handle);
+
+    const result = ma.ma_sound_stop(&self.sound);
+    if (result != ma.MA_SUCCESS) {
+        return utils.throwMiniaudioException(env, result, "Failed to stop sound");
+    }
+}
+
+pub fn jniIsPlaying(cEnv: *jni.cEnv, class: jni.jclass, handle: jni.jlong) callconv(.C) jni.jboolean {
+    const env = jni.JNIEnv.warp(cEnv);
+    return isPlaying(env, class, handle) catch 0;
+}
+
+fn isPlaying(_: jni.JNIEnv, _: jni.jclass, handle: jni.jlong) error{Exception}!jni.jboolean {
+    const self = utils.ptrFromHandle(Self, handle);
+    const is_playing = ma.ma_sound_is_playing(&self.sound) != 0;
+    return jni.boolToJboolean(is_playing);
+}
+
+pub fn jniGetVolume(cEnv: *jni.cEnv, class: jni.jclass, handle: jni.jlong) callconv(.C) jni.jfloat {
+    const env = jni.JNIEnv.warp(cEnv);
+    return getVolume(env, class, handle) catch 0;
+}
+
+fn getVolume(_: jni.JNIEnv, _: jni.jclass, handle: jni.jlong) error{Exception}!jni.jfloat {
+    const self = utils.ptrFromHandle(Self, handle);
+    return ma.ma_sound_get_volume(&self.sound);
+}
+
+pub fn jniSetVolume(cEnv: *jni.cEnv, class: jni.jclass, handle: jni.jlong, volume: jni.jfloat) callconv(.C) void {
+    const env = jni.JNIEnv.warp(cEnv);
+    return setVolume(env, class, handle, volume) catch {};
+}
+
+fn setVolume(_: jni.JNIEnv, _: jni.jclass, handle: jni.jlong, volume: jni.jfloat) error{Exception}!void {
+    const self = utils.ptrFromHandle(Self, handle);
+    ma.ma_sound_set_volume(&self.sound, volume);
+}
+
+pub fn jniSeekToPcmFrame(cEnv: *jni.cEnv, class: jni.jclass, handle: jni.jlong, frame_index: jni.jlong) callconv(.C) void {
+    const env = jni.JNIEnv.warp(cEnv);
+    return seekToPcmFrame(env, class, handle, frame_index) catch {};
+}
+
+fn seekToPcmFrame(env: jni.JNIEnv, _: jni.jclass, handle: jni.jlong, frame_index_signed: jni.jlong) error{Exception}!void {
+    const self = utils.ptrFromHandle(Self, handle);
+    const frame_index: u64 = @intCast(frame_index_signed);
+
+    const result = ma.ma_sound_seek_to_pcm_frame(&self.sound, frame_index);
+    if (result != ma.MA_SUCCESS) {
+        return utils.throwMiniaudioException(env, result, "Failed to seek sound");
+    }
+}
