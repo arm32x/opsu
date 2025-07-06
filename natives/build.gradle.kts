@@ -13,8 +13,8 @@ if (propertiesFile.exists()) {
 val zigPath = properties["zig.path"] as String? ?: "zig"
 
 val compileZig by tasks.registering(Exec::class) {
-    // TODO: Allow building in release mode.
-    commandLine = listOf(zigPath, "build")
+    val optimize = project.findProperty("zig.optimize") as String? ?: "Debug"
+    commandLine = listOf(zigPath, "build", "-Doptimize=$optimize")
     workingDir = projectDir
 
     inputs.file("build.zig")
