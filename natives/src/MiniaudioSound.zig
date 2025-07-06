@@ -4,7 +4,6 @@ const ma = @import("miniaudio");
 
 const Miniaudio = @import("Miniaudio.zig");
 const utils = @import("utils.zig");
-const ZeroSizedDataSource = @import("zero_sized_data_source.zig").ZeroSizedDataSource;
 
 const Self = @This();
 
@@ -14,8 +13,9 @@ sound: ma.ma_sound,
 data_source: union(enum) {
     none, // managed by the ma_sound
     audio_buffer: ma.ma_audio_buffer,
-    zero_sized: ZeroSizedDataSource,
 },
+
+const one_frame_of_silence = [_]u16{0};
 
 pub fn jniInitFromFile(
     cEnv: *jni.cEnv,
@@ -104,40 +104,32 @@ fn initFromDirectByteBuffer(
     errdefer allocator.destroy(self);
     self.* = .{
         .sound = undefined, // initialized below
-        .data_source = .none, // initialized below
+        .data_source = .{ .audio_buffer = undefined }, // initialized below
     };
 
-    // ma_audio_buffer doesn't support empty buffers, so we need to use a custom
-    // data source for that
-    const data_source: *ma.ma_data_source = if (len_in_frames > 0) data_source: {
-        self.data_source = .{ .audio_buffer = undefined };
-
-        const config = ma.ma_audio_buffer_config{
-            .format = format,
-            .channels = channels,
-            .sampleRate = sample_rate,
-            .sizeInFrames = len_in_frames,
-            .pData = buffer.ptr,
-        };
-        result = ma.ma_audio_buffer_init(&config, &self.data_source.audio_buffer);
-        if (result != ma.MA_SUCCESS) {
-            return utils.throwMiniaudioException(env, result, "Failed to initialize audio buffer");
-        }
-
-        break :data_source &self.data_source.audio_buffer;
-    } else data_source: {
-        const data_source, result = ZeroSizedDataSource.init(format, channels, sample_rate);
-        if (result != ma.MA_SUCCESS) {
-            return utils.throwMiniaudioException(env, result, "Failed to initialize zero-sized data source");
-        }
-
-        self.data_source = .{ .zero_sized = data_source };
-        break :data_source &self.data_source.zero_sized;
+    // ma_audio_buffer doesn't support empty buffers. If we are given an empty
+    // buffer, then we use 1 frame of silence instead.
+    const config = if (len_in_frames == 0) ma.ma_audio_buffer_config{
+        .format = ma.ma_format_s16,
+        .channels = 1,
+        .sampleRate = ma.ma_standard_sample_rate_44100,
+        .sizeInFrames = 1,
+        .pData = &one_frame_of_silence,
+    } else ma.ma_audio_buffer_config{
+        .format = format,
+        .channels = channels,
+        .sampleRate = sample_rate,
+        .sizeInFrames = len_in_frames,
+        .pData = buffer.ptr,
     };
+    result = ma.ma_audio_buffer_init(&config, &self.data_source.audio_buffer);
+    if (result != ma.MA_SUCCESS) {
+        return utils.throwMiniaudioException(env, result, "Failed to initialize audio buffer");
+    }
 
     result = ma.ma_sound_init_from_data_source(
         &miniaudio.engine,
-        data_source,
+        &self.data_source.audio_buffer,
         0, // flags
         null, // group
         &self.sound,
@@ -162,7 +154,6 @@ fn destroy(_: jni.JNIEnv, _: jni.jclass, handle: jni.jlong) error{Exception}!voi
     switch (self.data_source) {
         .none => {},
         .audio_buffer => |*audio_buffer| ma.ma_audio_buffer_uninit(audio_buffer),
-        .zero_sized => |*zero_sized| ZeroSizedDataSource.deinit(zero_sized),
     }
 
     allocator.destroy(self);
