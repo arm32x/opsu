@@ -20,10 +20,16 @@ package itdelatrisu.opsu.audio;
 
 import itdelatrisu.opsu.ErrorHandler;
 import itdelatrisu.opsu.Utils;
+import itdelatrisu.opsu.audio.miniaudio.Miniaudio;
+import itdelatrisu.opsu.audio.miniaudio.MiniaudioFormat;
+import itdelatrisu.opsu.audio.miniaudio.MiniaudioSound;
 
 import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import java.util.Iterator;
 import java.util.LinkedList;
+import java.util.Objects;
 
 import javax.sound.sampled.AudioFormat;
 import javax.sound.sampled.AudioInputStream;
@@ -57,16 +63,22 @@ public class MultiClip {
 	private static int closingThreads = 0;
 
 	/** A list of clips used for this audio sample. */
-	private LinkedList<Clip> clips = new LinkedList<Clip>();
+	private LinkedList<MiniaudioSound> clips = new LinkedList<>();
 
 	/** The audio input stream. */
 	private AudioInputStream audioIn;
 
 	/** The format of this audio sample. */
-	private AudioFormat format;
+	private MiniaudioFormat format;
+
+	/** The number of channels in this audio sample (usually mono or stereo). */
+	private int channels;
+
+	/** The sample rate of this audio sample. */
+	private int sampleRate;
 
 	/** The data for this audio sample. */
-	private byte[] audioData;
+	private ByteBuffer audioData;
 
 	/** The name given to this clip. */
 	private final String name;
@@ -76,14 +88,15 @@ public class MultiClip {
 	 * @param name the clip name
 	 * @param audioIn the associated AudioInputStream
 	 * @throws IOException if an input or output error occurs
-	 * @throws LineUnavailableException if a clip object is not available or
-	 *         if the line cannot be opened due to resource restrictions
 	 */
-	public MultiClip(String name, AudioInputStream audioIn) throws IOException, LineUnavailableException {
+	public MultiClip(String name, AudioInputStream audioIn) throws IOException {
 		this.name = name;
 		this.audioIn = audioIn;
 		if (audioIn != null) {
-			format = audioIn.getFormat();
+			AudioFormat audioFormat = audioIn.getFormat();
+			format = MiniaudioFormat.fromAudioFormat(audioFormat);
+			channels = audioFormat.getChannels();
+			sampleRate = (int) audioFormat.getSampleRate();
 
 			LinkedList<byte[]> allBufs = new LinkedList<byte[]>();
 
@@ -103,14 +116,14 @@ public class MultiClip {
 				allBufs.add(tbuf);
 			}
 
-			audioData = new byte[(allBufs.size() - 1) * BUFFER_SIZE + totalRead];
+			audioData = ByteBuffer.allocateDirect((allBufs.size() - 1) * BUFFER_SIZE + totalRead);
 
 			int cnt = 0;
 			for (byte[] tbuf : allBufs) {
 				int size = BUFFER_SIZE;
 				if (cnt == allBufs.size() - 1)
 					size = totalRead;
-				System.arraycopy(tbuf, 0, audioData, BUFFER_SIZE * cnt, size);
+				audioData.put(tbuf, 0, size);
 				cnt++;
 			}
 		}
@@ -132,27 +145,15 @@ public class MultiClip {
 	 *         if the line cannot be opened due to resource restrictions
 	 */
 	public void start(float volume, LineListener listener) throws LineUnavailableException {
-		Clip clip = getClip();
+		MiniaudioSound clip = getClip();
 		if (clip == null)
 			return;
 
-		// PulseAudio does not support Master Gain
-		if (clip.isControlSupported(FloatControl.Type.MASTER_GAIN)) {
-			// set volume
-			FloatControl gainControl = (FloatControl) clip.getControl(FloatControl.Type.MASTER_GAIN);
-			float dB = (float) (Math.log(volume) / Math.log(10.0) * 20.0);
-			gainControl.setValue(Utils.clamp(dB, gainControl.getMinimum(), gainControl.getMaximum()));
-		} else if (clip.isControlSupported(FloatControl.Type.VOLUME)) {
-			// The docs don't mention what unit "volume" is supposed to be,
-			// but for PulseAudio it seems to be amplitude
-			FloatControl volumeControl = (FloatControl) clip.getControl(FloatControl.Type.VOLUME);
-			float amplitude = (float) Math.sqrt(volume) * volumeControl.getMaximum();
-			volumeControl.setValue(Utils.clamp(amplitude, volumeControl.getMinimum(), volumeControl.getMaximum()));
-		}
-
-		if (listener != null)
-			clip.addLineListener(listener);
-		clip.setFramePosition(0);
+		clip.setVolume(volume);
+		// TODO: Implement callbacks
+//		if (listener != null)
+//			clip.addLineListener(listener);
+		clip.seekToPcmFrame(0);
 		clip.start();
 	}
 
@@ -160,14 +161,12 @@ public class MultiClip {
 	 * Stops the clip, if active.
 	 */
 	public void stop() {
-		try {
-			Clip clip = getClip();
-			if (clip == null)
-				return;
+		MiniaudioSound clip = getClip();
+		if (clip == null)
+			return;
 
-			if (clip.isActive())
-				clip.stop();
-		} catch (LineUnavailableException e) {}
+		if (clip.isPlaying())
+			clip.stop();
 	}
 
 	/**
@@ -175,10 +174,8 @@ public class MultiClip {
 	 * If no clip is available, then a new one is created if under MAX_CLIPS.
 	 * Otherwise, an existing clip will be returned.
 	 * @return the Clip to play
-	 * @throws LineUnavailableException if a clip object is not available or
-	 *         if the line cannot be opened due to resource restrictions
 	 */
-	private Clip getClip() throws LineUnavailableException {
+	private MiniaudioSound getClip() {
 		// TODO:
 		// Occasionally, even when clips are being closed in a separate thread,
 		// playing any clip will cause the game to hang until all clips are
@@ -187,16 +184,16 @@ public class MultiClip {
 			return null;
 
 		// search for existing stopped clips
-		for (Iterator<Clip> iter = clips.iterator(); iter.hasNext();) {
-			Clip c = iter.next();
-			if (!c.isRunning() && !c.isActive()) {
+		for (Iterator<MiniaudioSound> iter = clips.iterator(); iter.hasNext();) {
+			MiniaudioSound c = iter.next();
+			if (!c.isPlaying()) {
 				iter.remove();
 				clips.add(c);
 				return c;
 			}
 		}
 
-		Clip c = null;
+		MiniaudioSound c = null;
 		if (extraClips >= MAX_CLIPS) {
 			// use an existing clip
 			if (clips.isEmpty())
@@ -206,15 +203,7 @@ public class MultiClip {
 			clips.add(c);
 		} else {
 			// create a new clip
-			// NOTE: AudioSystem.getClip() doesn't work on some Linux setups.
-			DataLine.Info info = new DataLine.Info(Clip.class, format);
-			c = (Clip) AudioSystem.getLine(info);
-			if (format != null && !c.isOpen())
-				c.open(format, audioData, 0, audioData.length);
-
-			// fix PulseAudio issues (hacky, but can't do an instanceof check)
-			if (c.getClass().getSimpleName().equals("PulseAudioClip"))
-				c.addLineListener(new PulseAudioFixerListener(c));
+			c = MiniaudioSound.fromDirectByteBuffer(Miniaudio.getInstance(), audioData, format, channels, sampleRate);
 
 			clips.add(c);
 			if (clips.size() != 1)
@@ -228,13 +217,12 @@ public class MultiClip {
 	 */
 	public void destroy() {
 		if (clips.size() > 0) {
-			for (Clip c : clips) {
+			for (MiniaudioSound c : clips) {
 				c.stop();
-				c.flush();
-				c.close();
+				c.destroy();
 			}
 			extraClips -= clips.size() - 1;
-			clips = new LinkedList<Clip>();
+			clips = new LinkedList<>();
 		}
 		audioData = null;
 		if (audioIn != null) {
@@ -254,10 +242,10 @@ public class MultiClip {
 			return;
 
 		// find all extra clips
-		final LinkedList<Clip> clipsToClose = new LinkedList<Clip>();
+		final LinkedList<MiniaudioSound> clipsToClose = new LinkedList<>();
 		for (MultiClip mc : MultiClip.ALL_MULTICLIPS) {
-			for (Iterator<Clip> iter = mc.clips.iterator(); iter.hasNext();) {
-				Clip c = iter.next();
+			for (Iterator<MiniaudioSound> iter = mc.clips.iterator(); iter.hasNext();) {
+				MiniaudioSound c = iter.next();
 				if (mc.clips.size() > 1) {  // retain last Clip in list
 					iter.remove();
 					clipsToClose.add(c);
@@ -270,10 +258,9 @@ public class MultiClip {
 			@Override
 			public void run() {
 				closingThreads++;
-				for (Clip c : clipsToClose) {
+				for (MiniaudioSound c : clipsToClose) {
 					c.stop();
-					c.flush();
-					c.close();
+					c.destroy();
 				}
 				closingThreads--;
 			}

@@ -4,17 +4,35 @@ const ma = @import("miniaudio");
 
 const Miniaudio = @import("Miniaudio.zig");
 const utils = @import("utils.zig");
+const ZeroSizedDataSource = @import("zero_sized_data_source.zig").ZeroSizedDataSource;
 
 const Self = @This();
 
 sound: ma.ma_sound,
+// If we created this sound from a ByteBuffer, we need to keep track of the
+// data source so we can free it later.
+data_source: union(enum) {
+    none, // managed by the ma_sound
+    audio_buffer: ma.ma_audio_buffer,
+    zero_sized: ZeroSizedDataSource,
+},
 
-pub fn jniInitFromFile(cEnv: *jni.cEnv, class: jni.jclass, miniaudio_handle: jni.jlong, file_path_string: jni.jstring) callconv(.C) jni.jlong {
+pub fn jniInitFromFile(
+    cEnv: *jni.cEnv,
+    class: jni.jclass,
+    miniaudio_handle: jni.jlong,
+    file_path_string: jni.jstring,
+) callconv(.C) jni.jlong {
     const env = jni.JNIEnv.warp(cEnv);
     return initFromFile(env, class, miniaudio_handle, file_path_string) catch 0;
 }
 
-fn initFromFile(env: jni.JNIEnv, _: jni.jclass, miniaudio_handle: jni.jlong, file_path_string: jni.jstring) error{Exception}!jni.jlong {
+fn initFromFile(
+    env: jni.JNIEnv,
+    _: jni.jclass,
+    miniaudio_handle: jni.jlong,
+    file_path_string: jni.jstring,
+) error{Exception}!jni.jlong {
     const allocator = std.heap.c_allocator;
     const miniaudio = utils.ptrFromHandle(Miniaudio, miniaudio_handle);
 
@@ -22,8 +40,108 @@ fn initFromFile(env: jni.JNIEnv, _: jni.jclass, miniaudio_handle: jni.jlong, fil
     defer allocator.free(file_path);
 
     const self = allocator.create(Self) catch return utils.throwOutOfMemoryError(env);
+    errdefer allocator.destroy(self);
+    self.* = .{
+        .sound = undefined, // initialized below
+        .data_source = .none,
+    };
 
-    const result = ma.ma_sound_init_from_file(&miniaudio.engine, file_path, ma.MA_SOUND_FLAG_DECODE, null, null, &self.sound);
+    const result = ma.ma_sound_init_from_file(
+        &miniaudio.engine,
+        file_path,
+        ma.MA_SOUND_FLAG_DECODE,
+        null, // group
+        null, // done fence
+        &self.sound,
+    );
+    if (result != ma.MA_SUCCESS) {
+        return utils.throwMiniaudioException(env, result, "Failed to initialize sound");
+    }
+
+    return utils.handleFromPtr(self);
+}
+
+pub fn jniInitFromDirectByteBuffer(
+    cEnv: *jni.cEnv,
+    class: jni.jclass,
+    miniaudio_handle: jni.jlong,
+    byte_buffer: jni.jobject,
+    format: jni.jint,
+    channels: jni.jint,
+    sample_rate: jni.jint,
+) callconv(.C) jni.jlong {
+    const env = jni.JNIEnv.warp(cEnv);
+    return initFromDirectByteBuffer(env, class, miniaudio_handle, byte_buffer, format, channels, sample_rate) catch 0;
+}
+
+fn initFromDirectByteBuffer(
+    env: jni.JNIEnv,
+    _: jni.jclass,
+    miniaudio_handle: jni.jlong,
+    byte_buffer: jni.jobject,
+    format_signed: jni.jint,
+    channels_signed: jni.jint,
+    sample_rate_signed: jni.jint,
+) error{Exception}!jni.jlong {
+    const allocator = std.heap.c_allocator;
+    const miniaudio = utils.ptrFromHandle(Miniaudio, miniaudio_handle);
+    const format: ma.ma_format = @intCast(format_signed);
+    const channels: u32 = @intCast(channels_signed);
+    const sample_rate: u32 = @intCast(sample_rate_signed);
+    var result: ma.ma_result = ma.MA_SUCCESS;
+
+    const buffer_address: ?[*]u8 = @ptrFromInt(env.getDirectBufferAddress(byte_buffer));
+    const buffer_capacity = env.getDirectBufferCapacity(byte_buffer);
+    if (buffer_address == null or buffer_capacity == -1) {
+        return utils.throwNew(env, "java/lang/RuntimeException", "Could not access direct ByteBuffer");
+    }
+    const buffer: []u8 = buffer_address.?[0..@intCast(buffer_capacity)];
+
+    const bytes_per_frame = ma.ma_get_bytes_per_frame(format, channels);
+    const len_in_frames: u64 = buffer.len / bytes_per_frame;
+
+    const self = allocator.create(Self) catch return utils.throwOutOfMemoryError(env);
+    errdefer allocator.destroy(self);
+    self.* = .{
+        .sound = undefined, // initialized below
+        .data_source = .none, // initialized below
+    };
+
+    // ma_audio_buffer doesn't support empty buffers, so we need to use a custom
+    // data source for that
+    const data_source: *ma.ma_data_source = if (len_in_frames > 0) data_source: {
+        self.data_source = .{ .audio_buffer = undefined };
+
+        const config = ma.ma_audio_buffer_config{
+            .format = format,
+            .channels = channels,
+            .sampleRate = sample_rate,
+            .sizeInFrames = len_in_frames,
+            .pData = buffer.ptr,
+        };
+        result = ma.ma_audio_buffer_init(&config, &self.data_source.audio_buffer);
+        if (result != ma.MA_SUCCESS) {
+            return utils.throwMiniaudioException(env, result, "Failed to initialize audio buffer");
+        }
+
+        break :data_source &self.data_source.audio_buffer;
+    } else data_source: {
+        const data_source, result = ZeroSizedDataSource.init(format, channels, sample_rate);
+        if (result != ma.MA_SUCCESS) {
+            return utils.throwMiniaudioException(env, result, "Failed to initialize zero-sized data source");
+        }
+
+        self.data_source = .{ .zero_sized = data_source };
+        break :data_source &self.data_source.zero_sized;
+    };
+
+    result = ma.ma_sound_init_from_data_source(
+        &miniaudio.engine,
+        data_source,
+        0, // flags
+        null, // group
+        &self.sound,
+    );
     if (result != ma.MA_SUCCESS) {
         return utils.throwMiniaudioException(env, result, "Failed to initialize sound");
     }
