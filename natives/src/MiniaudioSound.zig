@@ -159,6 +159,11 @@ fn destroy(_: jni.JNIEnv, _: jni.jclass, handle: jni.jlong) error{Exception}!voi
     const self = utils.ptrFromHandle(Self, handle);
 
     ma.ma_sound_uninit(&self.sound);
+    switch (self.data_source) {
+        .none => {},
+        .audio_buffer => |*audio_buffer| ma.ma_audio_buffer_uninit(audio_buffer),
+        .zero_sized => |*zero_sized| ZeroSizedDataSource.deinit(zero_sized),
+    }
 
     allocator.destroy(self);
 }
